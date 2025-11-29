@@ -15,6 +15,8 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.documents import Document
 
 load_dotenv()
+GOOGLE_API_KEY = st.secrets["google"]["api_key"]
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 st.title("📄 Multi-Document Summarizer & Q/A App (RAG + FAISS, LCEL Version)")
 
@@ -141,3 +143,4 @@ Answer:
                     summary = rag_chain.invoke(summary_prompt)
 
             st.write(summary)
+
