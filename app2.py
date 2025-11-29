@@ -18,9 +18,9 @@ load_dotenv()
 GOOGLE_API_KEY = st.secrets["google"]["api_key"]
 os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
-st.title("📄 Multi-Document Summarizer & Q/A App (RAG + FAISS, LCEL Version)")
+st.title("AI Powered Document Summarizer & Q/A App")
 
-# 1️⃣ UPLOAD DOCUMENTS
+#uploading the documents
 uploaded_files = st.file_uploader(
     "Upload multiple files (PDF, TXT, CSV, XLSX)",
     type=["pdf", "txt", "csv", "xlsx"],
@@ -33,7 +33,7 @@ if uploaded_files:
     for file in uploaded_files:
         suffix = file.name.split('.')[-1].lower()
 
-        # --------- PDF & TXT handled via tempfile ----------
+        # handling the PDF & TXTvia tempfile
         if suffix in ["pdf", "txt"]:
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp_file:
                 tmp_file.write(file.read())
@@ -51,7 +51,7 @@ if uploaded_files:
                 doc.metadata["source"] = file.name
             documents.extend(loaded_docs)
 
-        # --------- CSV ----------
+        #csv
         elif suffix == "csv":
             df = pd.read_csv(file)
             text_data = df.to_string(index=False)
@@ -59,7 +59,7 @@ if uploaded_files:
                 Document(page_content=text_data, metadata={"source": file.name})
             )
 
-        # --------- XLSX ----------
+        #excel files
         elif suffix == "xlsx":
             xls = pd.ExcelFile(file)
             for sheet in xls.sheet_names:
@@ -69,40 +69,40 @@ if uploaded_files:
                     Document(page_content=text_data, metadata={"source": f"{file.name} - {sheet}"})
                 )
 
-    # 2️⃣ SPLIT DOCUMENTS
+    #splitting the text into chunks
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = splitter.split_documents(documents)
 
-    # 3️⃣ EMBEDDINGS + VECTOR DB
+    # creating the embeddings and saving in FAISS Vector DB
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vector_db = FAISS.from_documents(chunks, embeddings)
     retriever = vector_db.as_retriever(search_kwargs={"k": 5})
 
-    # 4️⃣ LLM
+    #LLM
     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001", temperature=0.2)
 
-    # 5️⃣ PROMPT
+    #custome prompt template
     prompt = PromptTemplate(
         input_variables=["context", "question"],
         template="""
-You are an intelligent AI assistant. Answer the question using ONLY the provided context.
+        You are an intelligent AI assistant. Answer the question using ONLY the provided context.
 
-Context:
-{context}
+        Context:
+        {context}
 
-Question:
-{question}
+        Question:
+        {question}
 
-If the answer cannot be found in the context, reply:
-"Information not available in the provided context."
+        If the answer cannot be found in the context, reply:
+        "Information not available in the provided context."
 
-Answer:
-"""
+        Answer:
+        """
     )
 
     parser = StrOutputParser()
 
-    # 6️⃣ LCEL RAG CHAIN
+    # LCEL(LangChain Expression Language) RAG chain
     rag_chain = (
         {
             "context": retriever | (lambda docs: "\n\n".join(d.page_content for d in docs)),
@@ -115,10 +115,10 @@ Answer:
 
     st.success("Documents processed successfully!")
 
-    # 7️⃣ MODE SELECTION
+    #select the mode
     mode = st.radio("Choose Mode:", ["Question Answering", "Summarization"])
 
-    # 8️⃣ QUESTION ANSWERING
+    #QA
     if mode == "Question Answering":
         query = st.text_input("Ask your question:")
         if query:
@@ -126,21 +126,29 @@ Answer:
                 answer = rag_chain.invoke(query)
             st.write(answer)
 
-    # 9️⃣ SUMMARIZATION
+
+    #summarizer
     if mode == "Summarization":
         # Use metadata 'source' for user-friendly labels
-        doc_labels = ["All Documents"] + [doc.metadata.get("source", f"Document {i+1}") for i, doc in enumerate(documents)]
+        unique_sources = list({doc.metadata.get("source", f"Document {i+1}") for i, doc in enumerate(documents)})
+        unique_sources.sort()
+        doc_labels = ["All Documents"] + unique_sources
         selected_doc = st.selectbox("Select document to summarize:", doc_labels)
 
         if st.button("Summarize"):
             with st.spinner("Summarizing..."):
+
                 if selected_doc == "All Documents":
-                    summary_prompt = "Provide a detailed summary of all uploaded documents."
-                    summary = rag_chain.invoke(summary_prompt)
+                    # Join all chunks content
+                    context_text = "\n\n".join([chunk.page_content for chunk in chunks])
+                    summary_prompt = f"Provide a detailed summary of all uploaded documents:\n{context_text}"
+                    summary = llm.invoke(summary_prompt)
+
                 else:
-                    # Summarize only the selected document
-                    summary_prompt = f"Provide a detailed summary of ONLY this document: {selected_doc}"
-                    summary = rag_chain.invoke(summary_prompt)
+                    # Filter chunks for the selected document
+                    filtered_chunks = [chunk for chunk in chunks if selected_doc == chunk.metadata.get("source", "")]
+                    context_text = "\n\n".join([chunk.page_content for chunk in filtered_chunks])
+                    summary_prompt = f"Provide a detailed summary of ONLY this document ({selected_doc}):\n{context_text}"
+                    summary = llm.invoke(summary_prompt)
 
-            st.write(summary)
-
+            st.write(summary.content)
