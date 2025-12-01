@@ -152,3 +152,10 @@ if uploaded_files:
                     summary = llm.invoke(summary_prompt)
 
             st.write(summary.content)
+            st.download_button(
+            label="Download Summary",
+            data=summary.content,
+            file_name=f"Summary_{selected_doc.replace(' ', '_')}.txt",
+            mime="text/plain"
+        )
+
